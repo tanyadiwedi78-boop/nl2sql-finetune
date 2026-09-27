@@ -75,8 +75,9 @@ def _gen_join_customer_orders(rng):
         "JOIN products p ON oi.product_id = p.product_id"
         "GROUP BY c.customer_id , c.name "
         f"ORDER BY total_spent DESC LIMIT {n}"
-        return q , sql 
     )
+    return q , sql 
+    
 
 def _gen_group_by_category(rng):
     q = "Show the total revenue for each product category."
