@@ -15,13 +15,13 @@ RESULTS_PATH = ROOT / "eval_results.json"
 DEFAULT_BASE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 SCHEMA_PREAMBLE = (
-    "You are and sql expert. Given the database schema below , write a single" 
+    "You are an SQL expert. Given the database schema below, write a single "
     "SQL query that answers the questions.\n\n"
     "Schema:\n"
-    "customer(customer_id , name , email , country , signup_date)\n"
-    "products(product_id , name , category , price)\n"
-    "orders(order_id , customer_id , order_date , status)\n"
-    "order_items(order_item_id , order_id , product_id , quantity)\n"
+    "customers(customer_id, name, email, country, signup_date)\n"
+    "products(product_id, name, category, price)\n"
+    "orders(order_id, customer_id, order_date, status)\n"
+    "order_items(order_item_id, order_id, product_id, quantity)\n"
     
 )
 
@@ -43,7 +43,7 @@ def _sample_int(rng , lo , hi):
 def _gen_simple_filter(rng):
     country = rng.choice(COUNTRIES)
     q = f"List the names and emails of all customers from {country}"
-    sql = f"SELECT name , email FROM customer WHERE country = '{country}';"
+    sql = f"SELECT name, email FROM customers WHERE country = '{country}';"
     return q , sql
 
 def _gen_count(rng):
@@ -54,12 +54,12 @@ def _gen_count(rng):
 
 def _gen_avg_price(rng):
     cat = rng.choice(CATEGORIES)
-    q = f"What is the average price of products in the {cat} category ?"
-    sql = f"SELECT AVG(price) FROM products WHERE category "
+    q = f"What is the average price of products in the {cat} category?"
+    sql = f"SELECT AVG(price) FROM products WHERE category = '{cat}';"
     return q , sql
 
 def _gen_top_n(rng):
-    n = sample_int(rng , 3 , 10)
+    n = _sample_int(rng, 3, 10)
     q = f"Show the top {n} most expensive products."
     sql = f"SELECT name , price FROM products ORDER BY price DESC LIMIT {n};"
     return q , sql
@@ -68,12 +68,12 @@ def _gen_join_customer_orders(rng):
     n = _sample_int(rng , 3, 10)
     q = f"Show the top {n} customers by total amount spent."
     sql = (
-        "SELECT c.name , SUM(p.price * oi.quantity) AS total_spent"
-        "FROM customers c"
-        "JOIN orders o ON c.customer_id = o.customer_id"
-        "JOIN order_items oi ON o.order_id = oi.order_id"
-        "JOIN products p ON oi.product_id = p.product_id"
-        "GROUP BY c.customer_id , c.name "
+        "SELECT c.name, SUM(p.price * oi.quantity) AS total_spent "
+        "FROM customers c "
+        "JOIN orders o ON c.customer_id = o.customer_id "
+        "JOIN order_items oi ON o.order_id = oi.order_id "
+        "JOIN products p ON oi.product_id = p.product_id "
+        "GROUP BY c.customer_id, c.name "
         f"ORDER BY total_spent DESC LIMIT {n}"
     )
     return q , sql 
@@ -275,7 +275,7 @@ def cmd_train(args):
     import torch
     from datasets import Dataset
     from peft import LoraConfig , get_peft_model 
-    from transformers import AutoModelForCasualLM , AutoTokenizer , BitsAndBytesConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from trl import SFTTrainer , SFTConfig
 
     if not TRAIN_PATH.exists():
@@ -292,29 +292,29 @@ def cmd_train(args):
             load_in_4bit = True,
             bnb_4bit_use_double_quant  =True ,
             bnb_4bit_quant_type = "nf4" ,
-            bnd_4bit_compute_dtype = torch.bfloat16 , 
+            bnb_4bit_compute_dtype=torch.bfloat16,
         )
 
-        model = AutoModelCasualLM.from_pretrained(
-            args.base_model , quantization_config = bnd_config , device_map = "auto"
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model, quantization_config=bnb_config, device_map="auto"
         )
 
     else:
-        model = AutoModelCasualLM.from_pretrained(args.base_model)
+        model = AutoModelForCausalLM.from_pretrained(args.base_model)
 
     lora_config = LoraConfig(
             r = args.lora_r ,
             lora_alpha = args.lora_alpha ,
             target_modules = ["q_proj" , "k_proj" , "v_proj" , "o_proj"],
-            lora_dropuout = 0.05,
-            bias = "None",
-            task_type = "CASUAL_LM",
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
         )
     model = get_peft_model(model , lora_config)
     model.print_trainable_parameters()
 
-    records = load_jsonl(TRAIN_PATH)
-    train_dataset = Dataset.drom_list(records).map(_format_example)
+    records = _load_jsonl(TRAIN_PATH)
+    train_dataset = Dataset.from_list(records).map(_format_example)
     print(f"Loaded {len(train_dataset)} training examples from {TRAIN_PATH}")
 
     sft_config = SFTConfig(
@@ -326,10 +326,10 @@ def cmd_train(args):
         logging_steps = 10,
         save_strategy = "epoch",
         bf16 = use_cuda,
-        max_seq_length = args.max_seq_len,
+        max_length=args.max_seq_len,
         dataset_text_field = "text",
         report_to = "none",
-        optim="adamw_8bit",
+        optim="adamw_8bit" if use_cuda else "adamw_torch",
         )
 
     trainer = SFTTrainer(
@@ -342,7 +342,7 @@ def cmd_train(args):
 
     ADAPTER_DIR.mkdir(parents= True , exist_ok = True)
     model.save_pretrained(str(ADAPTER_DIR))
-    tokenizer.save_pretarined(str(ADAPTER_DIR))
+    tokenizer.save_pretrained(str(ADAPTER_DIR))
     print(f"\n Saved LoRA adapter to {ADAPTER_DIR}")
 
 
@@ -354,9 +354,9 @@ def build_prompt(question: str)-> str:
     return f"### Instruction:\n {SCHEMA_PREAMBLE}\nQuestion: {question}\n\n### Response:\n"
 
 
-def _load_model(base_model_name:str,use_adapter=bool , cpu=bool):
+def _load_model(base_model_name: str, use_adapter: bool = True, cpu: bool = False):
     import torch
-    from transformers import AutoModelForCasualLM , AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     if tokenizer.pad_token is None:
@@ -381,7 +381,7 @@ def _load_model(base_model_name:str,use_adapter=bool , cpu=bool):
 
 def _generate_sql(model, tokenizer, question: str, max_new_tokens: int = 128) -> str:
     import torch
-    prompt = _build_prompt(question)
+    prompt = build_prompt(question)
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     with torch.no_grad():
         output_ids = model.generate(
