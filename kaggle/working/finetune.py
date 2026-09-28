@@ -299,10 +299,10 @@ def cmd_train(args):
             args.base_model , quantization_config = bnd_config , device_map = "auto"
         )
 
-        else:
-            model = AutoModelCasualLM.from_pretrained(args.base_model)
+    else:
+        model = AutoModelCasualLM.from_pretrained(args.base_model)
 
-        lora_config = LoraConfig(
+    lora_config = LoraConfig(
             r = args.lora_r ,
             lora_alpha = args.lora_alpha ,
             target_modules = ["q_proj" , "k_proj" , "v_proj" , "o_proj"],
@@ -310,39 +310,40 @@ def cmd_train(args):
             bias = "None",
             task_type = "CASUAL_LM",
         )
-        model = get_peft_model(model , lora_config)
-        model.print_trainable_parameters()
+    model = get_peft_model(model , lora_config)
+    model.print_trainable_parameters()
 
-        records = load_jsonl(TRAIN_PATH)
-        train_dataset = Dataset.drom_list(records).map(_format_example)
-        print(f"Loaded {len(train_dataset)} training examples from {TRAIN_PATH}")
+    records = load_jsonl(TRAIN_PATH)
+    train_dataset = Dataset.drom_list(records).map(_format_example)
+    print(f"Loaded {len(train_dataset)} training examples from {TRAIN_PATH}")
 
-        sft_config = SFTConfig(
-            output_dir = str(ADAPTER_DIR),
-            num_train_epochs = args.epochs , 
-            per_device_train_batch_size = args.batch_size , 
-            gradient_accumulation_steps = 4,
-            learning_rate = args.lr,
-            logging_steps = 10,
-            save_strategy = "epoch",
-            bf16 = use_cuda,
-            max_seq_length = args.max_seq_len,
-            dataset_text_field = "text",
-            report_to = "none",
+    sft_config = SFTConfig(
+        output_dir = str(ADAPTER_DIR),
+        num_train_epochs = args.epochs , 
+        per_device_train_batch_size = args.batch_size , 
+        gradient_accumulation_steps = 4,
+        learning_rate = args.lr,
+        logging_steps = 10,
+        save_strategy = "epoch",
+        bf16 = use_cuda,
+        max_seq_length = args.max_seq_len,
+        dataset_text_field = "text",
+        report_to = "none",
+        optim="adamw_8bit",
         )
 
-        trainer = SFTTrainer(
-            model = model , 
-            args = sft_config,
-            train_dataset = train_dataset,
-            processing_class=tokenizer,
-        )
-        trainer.train()
+    trainer = SFTTrainer(
+        model = model , 
+        args = sft_config,
+        train_dataset = train_dataset,
+        processing_class=tokenizer,
+    )
+    trainer.train()
 
-        ADAPTER_DIR.mkdir(parents= True , exist_ok = True)
-        model.save_pretrained(str(ADAPTER_DIR))
-        tokenizer.save_pretarined(str(ADAPTER_DIR))
-        print(f"\n Saved LoRA adapter to {ADAPTER_DIR}")
+    ADAPTER_DIR.mkdir(parents= True , exist_ok = True)
+    model.save_pretrained(str(ADAPTER_DIR))
+    tokenizer.save_pretarined(str(ADAPTER_DIR))
+    print(f"\n Saved LoRA adapter to {ADAPTER_DIR}")
 
 
 #============================================================================
@@ -428,7 +429,7 @@ def _run_eval(model, tokenizer, test_set, label):
         is_match = _normalize_sql(pred_sql) == _normalize_sql(ex["gold_sql"])
         correct += int(is_match)
         rows.append({"question": ex["question"], "gold_sql": ex["gold_sql"],
-                      "predicted_sql": pred_sql, "match": is_match})
+                    "predicted_sql": pred_sql, "match": is_match})
         print(f"[{label}] {i+1}/{len(test_set)}  match={is_match}")
     accuracy = correct / len(test_set) if test_set else 0.0
     return accuracy, rows
